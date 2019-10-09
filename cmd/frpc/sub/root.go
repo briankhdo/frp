@@ -16,8 +16,11 @@ package sub
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -40,6 +43,7 @@ const (
 
 var (
 	cfgFile     string
+	accessToken string
 	showVersion bool
 
 	serverAddr      string
@@ -74,6 +78,7 @@ var (
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "./frpc.ini", "config file of frpc")
+	rootCmd.PersistentFlags().StringVarP(&accessToken, "accesstoken", "a", "", "config file of frpc")
 	rootCmd.PersistentFlags().BoolVarP(&showVersion, "version", "v", false, "version of frpc")
 
 	kcpDoneCh = make(chan struct{})
@@ -171,7 +176,45 @@ func parseClientCommonCfgFromCmd() (cfg config.ClientCommonConf, err error) {
 	return
 }
 
+type configResponse struct {
+	Email  string `json:"email"`
+	Config string `json:"config"`
+}
+
 func runClient(cfgFilePath string) (err error) {
+	// we can pass our configuration here...
+	if accessToken != "" {
+		client := &http.Client{}
+		req, err := http.NewRequest("GET", "http://115.84.182.197/api/config", nil)
+		if err != nil {
+			panic(err)
+		}
+
+		req.Header.Add("X-Access-Token", accessToken)
+		resp, err := client.Do(req)
+		if err != nil {
+			panic(err)
+		}
+
+		defer resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(body)
+
+		jsonConfig := configResponse{}
+		json.Unmarshal([]byte(body), &jsonConfig)
+		fmt.Println(jsonConfig.Config)
+
+		f, err := os.Create("./frpc.ini")
+		if err != nil {
+			panic(err)
+		}
+		f.WriteString(jsonConfig.Config)
+		f.Sync()
+	}
+
 	var content string
 	content, err = config.GetRenderedConfFromFile(cfgFilePath)
 	if err != nil {
